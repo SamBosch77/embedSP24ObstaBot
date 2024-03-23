@@ -2,3 +2,4 @@
 Group:
 - Samuel Bosch
 - Krishna Ashish Chinnari
+- Nicholas Schneider
