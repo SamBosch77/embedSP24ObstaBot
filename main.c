@@ -17,7 +17,39 @@
   */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
+#include <stdio.h>
+#include <stdlib.h>
 #include "main.h"
+#include "motor.h"
+#include "stm32f0xx.h"
+
+/*
+USED PINS:
+PC6-PC9 - LEDs
+PA4 - M1 PWM signal (TIM14)
+PA5 - M1 directional control pins
+PA6 - M2 PWM signal
+ - M2 directional control pins
+ - Enc1 timer
+ - Enc1 sampling pin
+ - Enc2 timer
+ - Enc2 sampling pin
+ - Ultrasonic 
+*/
+
+/*
+KNOWNS:
+- A 3V PWM signal can be used to drive the motors
+- 3V output from board to motor driver IN1,IN2, etc pins is okay
+- Motors can be driven at 5V successfully
+- Motor encoder VCC must be > 3.4V to measure successfully
+- Pull ups resistors likely needed for encoders since not soldered on board
+
+UNKNOWNS:
+- Encoder sampling frequency defined on chip or in software?
+- Ultrasonic ranging procedure
+- PWM signal
+*/
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -43,6 +75,9 @@
 
 /* USER CODE BEGIN PV */
 
+volatile uint32_t debouncer;
+volatile uint32_t encoder_count = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -53,6 +88,55 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+void LED_init(void) {
+    // Initialize PC8 and PC9 for LED's
+    RCC->AHBENR |= RCC_AHBENR_GPIOCEN;                                          // Enable peripheral clock to GPIOC
+    GPIOC->MODER |= (0x55 << 12); // 01 01 01 01 << 12 red, blue, orange, green general purpose output
+    GPIOC->OTYPER &= ~(0xF << 6); // ~(1 1 1 1) << 6 Push-pull output
+		GPIOC->OSPEEDR &= ~(0xFF << 12); // ~(11 11 11 11) << 12 low speed
+		GPIOC->PUPDR &= ~(0xFF << 12); // ~(11 11 11 11) << 12 no pull-up pull-down;
+    GPIOC->ODR &= ~(0xF << 6); // write 0000 to pins 6-9
+}
+
+void  button_init(void) {
+    // Initialize PA0 for button input
+    RCC->AHBENR |= RCC_AHBENR_GPIOAEN;                                          // Enable peripheral clock to GPIOA
+    GPIOA->MODER &= ~(GPIO_MODER_MODER0_0 | GPIO_MODER_MODER0_1);               // Set PA0 to input
+    GPIOC->OSPEEDR &= ~(GPIO_OSPEEDR_OSPEEDR0_0 | GPIO_OSPEEDR_OSPEEDR0_1);     // Set to low speed
+    GPIOC->PUPDR |= GPIO_PUPDR_PUPDR0_1;                                        // Set to pull-down
+}
+
+/* Called by SysTick Interrupt
+ * Performs button debouncing, changes wave type on button rising edge
+ * Updates frequency output from ADC value
+ */
+void HAL_SYSTICK_Callback(void) {
+    // Remember that this function is called by the SysTick interrupt
+    // You can't call any functions in here that use delay
+
+    debouncer = (debouncer << 1);
+    if(GPIOA->IDR & (1 << 0)) {
+        debouncer |= 0x1;
+    }
+
+    if(debouncer == 0x7FFFFFFF) {
+    switch(target_rpm) {
+        case 80:
+            target_rpm = 50;
+            break;
+        case 50:
+            target_rpm = 81;
+            break;
+        case 0:
+            target_rpm = 80;
+            break;
+        default:
+            target_rpm = 0;
+            break;
+        }
+    }
+}
 
 /* USER CODE END 0 */
 
@@ -72,6 +156,10 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+	
+	
+//  button_init();                          // Initialize button
+//  motor_init();
 
   /* USER CODE END Init */
 
@@ -85,6 +173,22 @@ int main(void)
   /* Initialize all configured peripherals */
   /* USER CODE BEGIN 2 */
 
+	// Enable needed peripheral clocks
+	RCC->AHBENR |= (1 << 19); // Enable GPIOC clock
+	RCC->AHBENR |= (1 << 17); // Enable GPIOA clock
+	
+	// LED Config
+	LED_init();
+	
+	// Init motors
+	pwm_init();
+	
+
+	debouncer = 0;
+	duty_cycle = 50;
+	; // Start at 50 percent duty cycle
+    
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -92,7 +196,32 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-
+		
+		
+		// Test IN1, IN2, IN3, IN4 combos
+		// Clear all LEDs
+		// GPIOC->ODR &= ~(0xF << 6); // write 0000 to pins 6-9
+		
+		
+		
+		// Set RED HI, BLU LO (M1 - Forward) for 1 second
+		// GPIOC->ODR |= (1 << 6); // set red
+		// GPIOC->ODR &= ~(1 << 7); // clear blue
+		
+		pwm_setDutyCycle(duty_cycle); // TIM14 pin
+		
+		// Set ORANGE HI, GREEN LO (M2 - Forward)
+		// GPIOC->ODR |= (1 << 8); // set orange
+		// GPIOC->ODR &= ~(1 << 9); // clear green
+		
+//		HAL_Delay(1000); // Wait a second
+//		
+//		
+//		// Stop the motors and wait a second
+//		GPIOC->ODR &= ~(0xF << 6); // write 0000 to pins 6-9
+//		HAL_Delay(1000);
+		
+		
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
