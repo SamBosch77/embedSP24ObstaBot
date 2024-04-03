@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include "main.h"
 #include "motor.h"
+#include "gyro.h"
 #include "stm32f0xx.h"
 
 /*
@@ -35,6 +36,10 @@ PA6 - M2 PWM signal
  - Enc2 timer
  - Enc2 sampling pin
  - Ultrasonic 
+PB15 - gyro MOSI (SPI2)
+PB14 - gyro MISO (SPI2)
+PB13 - gyro SCLK (SPI2)
+PC0  - gyro mode select/CS -- drive low for SPI communication enable
 */
 
 /*
@@ -77,6 +82,9 @@ UNKNOWNS:
 
 volatile uint32_t debouncer;
 volatile uint32_t encoder_count = 0;
+int16_t gyro_x = 0;
+int16_t gyro_y = 0;
+int16_t gyro_z = 0;
 
 /* USER CODE END PV */
 
@@ -183,18 +191,18 @@ int main(void)
 	// Init motors
 	pwm_init();
 	
+	i2c_init();
+	gyro_xyz_enable();
 
 	debouncer = 0;
 	duty_cycle = 50;
 	; // Start at 50 percent duty cycle
     
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
+	
     /* USER CODE END WHILE */
 		
 		
@@ -208,7 +216,7 @@ int main(void)
 		// GPIOC->ODR |= (1 << 6); // set red
 		// GPIOC->ODR &= ~(1 << 7); // clear blue
 		
-		pwm_setDutyCycle(duty_cycle); // TIM14 pin
+		//pwm_setDutyCycle(duty_cycle); // TIM14 pin
 		
 		// Set ORANGE HI, GREEN LO (M2 - Forward)
 		// GPIOC->ODR |= (1 << 8); // set orange
