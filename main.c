@@ -85,6 +85,7 @@ volatile uint32_t encoder_count = 0;
 int16_t gyro_x = 0;
 int16_t gyro_y = 0;
 int16_t gyro_z = 0;
+int32_t threshold = 1300;
 
 /* USER CODE END PV */
 
@@ -154,10 +155,6 @@ void HAL_SYSTICK_Callback(void) {
   */
 int main(void)
 {
-  /* USER CODE BEGIN 1 */
-
-  /* USER CODE END 1 */
-
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
@@ -174,10 +171,6 @@ int main(void)
   /* Configure the system clock */
   SystemClock_Config();
 
-  /* USER CODE BEGIN SysInit */
-
-  /* USER CODE END SysInit */
-
   /* Initialize all configured peripherals */
   /* USER CODE BEGIN 2 */
 
@@ -191,19 +184,46 @@ int main(void)
 	// Init motors
 	pwm_init();
 	
+	// initialize I2C bus with gyro and enable x,y,z axes
 	i2c_init();
-	gyro_xyz_enable();
+	i2c_WriteReg(GYRO_ADDR,CTRL_REG1,0xF);
 
 	debouncer = 0;
 	duty_cycle = 50;
-	; // Start at 50 percent duty cycle
+	// Start at 50 percent duty cycle
     
   /* USER CODE END 2 */
 
   /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
-	
-    /* USER CODE END WHILE */
+		
+	while (1) {
+
+		gyro_x = get_gyro_x();
+		gyro_y = get_gyro_y();
+
+    GPIOC->ODR &= ~(GPIO_ODR_7 | GPIO_ODR_6 | GPIO_ODR_8 |
+                    GPIO_ODR_9);  // Reset the ODR bits for LEDs
+
+    if (gyro_y > threshold) 
+		{
+      GPIOC->ODR |= GPIO_ODR_6;  // Red LED for positive Y
+    } 
+		else if (gyro_y < -threshold) 
+		{
+      GPIOC->ODR |= GPIO_ODR_7;  // Blue LED for negative Y
+    }
+
+    if (gyro_x > threshold) 
+		{
+      GPIOC->ODR |= GPIO_ODR_9;  // Green LED for positive X
+    } 
+		else if (gyro_x < -threshold) 
+		{
+      GPIOC->ODR |= GPIO_ODR_8;  // Orange LED for negative X
+    }
+
+    HAL_Delay(100);
+  }	
 		
 		
 		// Test IN1, IN2, IN3, IN4 combos
@@ -228,11 +248,6 @@ int main(void)
 //		// Stop the motors and wait a second
 //		GPIOC->ODR &= ~(0xF << 6); // write 0000 to pins 6-9
 //		HAL_Delay(1000);
-		
-		
-    /* USER CODE BEGIN 3 */
-  }
-  /* USER CODE END 3 */
 }
 
 /**
