@@ -22,44 +22,50 @@ void motor_init(void) {
 
 // Sets up the PWM and direction signals to drive the H-Bridge
 void pwm_init(void) {
-    
-    // Set up pin PA4 for H-bridge PWM output (TIMER 14 CH1)
-    GPIOA->MODER |= (1 << 9);
-    GPIOA->MODER &= ~(1 << 8);
+    RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
 
-    // Set PA4 to AF4,
-    GPIOA->AFR[0] &= 0xFFF0FFFF; // clear PA4 bits,
-    GPIOA->AFR[0] |= (1 << 18);
-
-    // Set up a PA5, PA6 as GPIO output pins for motor direction control
+    // Set up (PA5, PA6) and (PA0, PA1) as GPIO output pins for motor direction control
     GPIOA->MODER &= 0xFFFFC3FF; // clear PA5, PA6 bits,
     GPIOA->MODER |= (1 << 10) | (1 << 12);
-    
+		GPIOA->MODER &= 0xFFFFFFF0; // clear PA0, PA1
+		GPIOA->MODER |= (1 << 0) | (1 << 2);
     //Initialize one direction pin to high, the other low
     GPIOA->ODR |= (1 << 5);
     GPIOA->ODR &= ~(1 << 6);
+		GPIOA->ODR |= (1 << 0);
+		GPIOA->ODR &= ~(1 << 1);
 
-    // Set up PWM timer
-    RCC->APB1ENR |= RCC_APB1ENR_TIM14EN;
-    TIM14->CR1 = 0;                         // Clear control registers
-    TIM14->CCMR1 = 0;                       // (prevents having to manually clear bits)
-    TIM14->CCER = 0;
-
-    // Set output-compare CH1 to PWM1 mode and enable CCR1 preload buffer
-    TIM14->CCMR1 |= (TIM_CCMR1_OC1M_2 | TIM_CCMR1_OC1M_1 | TIM_CCMR1_OC1PE);
-    TIM14->CCER |= TIM_CCER_CC1E;           // Enable capture-compare channel 1
-    TIM14->PSC = 1;                         // Run timer on 24Mhz
-    TIM14->ARR = 1200;                      // PWM at 20kHz
-    TIM14->CCR1 = 0;                        // Start PWM at 0% duty cycle
-    
-    TIM14->CR1 |= TIM_CR1_CEN;              // Enable timer
+		RCC->APB1ENR |= RCC_APB1ENR_TIM3EN;
+		RCC->AHBENR |= RCC_AHBENR_GPIOCEN;
+		GPIOC->MODER |= (1 << 15); // set blue LED (PC7) to alt. function
+		GPIOC->MODER |= (1 << 13); // set red LED (PC6) to alt. function
+		GPIOC->AFR[0] &= ~(0xFF000000);
+		TIM3->ARR = 100; // 100
+		TIM3->PSC |= 0x63; // 99
+		TIM3->CCMR1 &= ~(1 << 0) & ~(1 << 1) & ~(1 << 8) & ~(1 << 9); // Set CCS1 and CCS2 to output
+		TIM3->CCMR1 |= (1 << 5) | (1 << 6); // set channel 1 to PWM mode 1
+		TIM3->CCMR1 &= ~(1 << 4);
+		TIM3->CCMR1 &= ~(1 << 12); // set channel 2 to PWM mode 1
+		TIM3->CCMR1 |= (1 << 13) | (1 << 14);
+		TIM3->CCMR1 |= (1 << 3) | (1 << 11); // enable output compare preload for channel 1 and 2
+		TIM3->CCER |= (1 << 0) | (1 << 4); // set output enable bits for channel 1 and 2
+		TIM3->CCR1 = 0; // 20% of ARR for CH1 (red - 6)
+		TIM3->CCR2 = 0; // 20% of ARR for CH2 (blue - 7)
+		TIM3->CR1 |= (1 << 0); // enable clock
 }
 
 // Set the duty cycle of the PWM, accepts (0-100)
-void pwm_setDutyCycle(uint8_t duty) {
+void pwm_setDutyCycleLeft(uint8_t duty) {
     if(duty <= 100) {
-        TIM14->CCR1 = ((uint32_t)duty*TIM14->ARR)/100;  // Use linear transform to produce CCR1 value
+        TIM3->CCR1 = duty;//((uint32_t)duty*TIM15->ARR)/100;  // Use linear transform to produce CCR1 value
         // (CCR1 == "pulse" parameter in PWM struct used by peripheral library)
+    }
+}
+
+void pwm_setDutyCycleRight(uint8_t duty) {
+    if(duty <= 100) {
+        TIM3->CCR2 = duty;//((uint32_t)duty*TIM15->ARR)/100;  // Use linear transform to produce CCR2 value
+        // (CCR2 == "pulse" parameter in PWM struct used by peripheral library)
     }
 }
 
@@ -217,7 +223,8 @@ void PI_update(void) {
 			output = 0;
 		}
     
-    pwm_setDutyCycle(output);
+    pwm_setDutyCycleLeft(output);
+		pwm_setDutyCycleRight(output);
     duty_cycle = output;            // For debug viewing
 
     // Read the ADC value for current monitoring, actual conversion into meaningful units 

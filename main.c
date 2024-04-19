@@ -22,6 +22,7 @@
 #include "main.h"
 #include "motor.h"
 #include "gyro.h"
+//#include "ultrasonic.h"
 #include "stm32f0xx.h"
 
 /*
@@ -85,7 +86,10 @@ volatile uint32_t encoder_count = 0;
 int16_t gyro_x = 0;
 int16_t gyro_y = 0;
 int16_t gyro_z = 0;
-int32_t threshold = 1300;
+int32_t threshold = 2000;
+float distance = 0;
+volatile int32_t xIntegral = 0;
+//volatile uint8_t duty_cycle = 0;
 
 /* USER CODE END PV */
 
@@ -179,7 +183,7 @@ int main(void)
 	RCC->AHBENR |= (1 << 17); // Enable GPIOA clock
 	
 	// LED Config
-	LED_init();
+	//LED_init();
 	
 	// Init motors
 	pwm_init();
@@ -188,39 +192,51 @@ int main(void)
 	i2c_init();
 	i2c_WriteReg(GYRO_ADDR,CTRL_REG1,0xF);
 
+	//uart_init();
+
 	debouncer = 0;
-	duty_cycle = 50;
+	duty_cycle = 25;
+	pwm_setDutyCycleLeft(duty_cycle);
+	pwm_setDutyCycleRight(duty_cycle);
+	
 	// Start at 50 percent duty cycle
     
   /* USER CODE END 2 */
 
   /* Infinite loop */
-		
 	while (1) {
 
 		gyro_x = get_gyro_x();
 		gyro_y = get_gyro_y();
+		xIntegral += gyro_x;
+		//distance = getDistance() / 1000;
 
-    GPIOC->ODR &= ~(GPIO_ODR_7 | GPIO_ODR_6 | GPIO_ODR_8 |
-                    GPIO_ODR_9);  // Reset the ODR bits for LEDs
+//    GPIOC->ODR &= ~(GPIO_ODR_7 | GPIO_ODR_6 | GPIO_ODR_8 |
+//                    GPIO_ODR_9);  // Reset the ODR bits for LEDs
 
-    if (gyro_y > threshold) 
-		{
-      GPIOC->ODR |= GPIO_ODR_6;  // Red LED for positive Y
-    } 
-		else if (gyro_y < -threshold) 
-		{
-      GPIOC->ODR |= GPIO_ODR_7;  // Blue LED for negative Y
-    }
+//    if (gyro_y > threshold) 
+//		{
+//      GPIOC->ODR |= GPIO_ODR_6;  // Red LED for positive Y
+//    } 
+//		else if (gyro_y < -threshold) 
+//		{
+//      GPIOC->ODR |= GPIO_ODR_7;  // Blue LED for negative Y
+//    }
 
     if (gyro_x > threshold) 
 		{
-      GPIOC->ODR |= GPIO_ODR_9;  // Green LED for positive X
+      pwm_setDutyCycleLeft(duty_cycle+10);  // Green LED for positive X
+			pwm_setDutyCycleRight(duty_cycle+10);
     } 
 		else if (gyro_x < -threshold) 
 		{
-      GPIOC->ODR |= GPIO_ODR_8;  // Orange LED for negative X
+      pwm_setDutyCycleLeft(duty_cycle-10);  // Orange LED for negative X
+			pwm_setDutyCycleRight(duty_cycle-10);
     }
+		else {
+			pwm_setDutyCycleLeft(duty_cycle);
+			pwm_setDutyCycleRight(duty_cycle);
+		}
 
     HAL_Delay(100);
   }	

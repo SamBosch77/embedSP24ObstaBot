@@ -29,7 +29,8 @@ extern volatile uint8_t Ki;            // Integral gain
 void motor_init(void);
 
 // Set the duty cycle of the PWM, accepts (0-100)
-void pwm_setDutyCycle(uint8_t duty);
+void pwm_setDutyCycleLeft(uint8_t duty);
+void pwm_setDutyCycleRight(uint8_t duty);
 
 // PI control code is called within a timer interrupt
 void PI_update(void);
