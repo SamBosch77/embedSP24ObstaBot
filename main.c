@@ -28,15 +28,18 @@
 /*
 USED PINS:
 PC6-PC9 - LEDs
-PA4 - M1 PWM signal (TIM14)
-PA5 - M1 directional control pins
-PA6 - M2 PWM signal
- - M2 directional control pins
- - Enc1 timer
- - Enc1 sampling pin
- - Enc2 timer
- - Enc2 sampling pin
- - Ultrasonic 
+
+PC6 - M1 PWM signal (TIM3)
+PA0,PA1 - M1 directional control pins
+PC7 - M2 PWM signal (TIM3)
+PA5,PA6 - M2 directional control pins
+
+PC1 - ADC_IN7 Rangefinder analog input
+
+PA4 - Servo PWM signal (TIM14 CH1) (duty cycle: 2-left, 6-front, 11-right)
+
+
+
 PB15 - gyro MOSI (SPI2)
 PB14 - gyro MISO (SPI2)
 PB13 - gyro SCLK (SPI2)
@@ -90,6 +93,8 @@ int32_t threshold = 2000;
 float distance = 0;
 volatile int32_t xIntegral = 0;
 //volatile uint8_t duty_cycle = 0;
+volatile char newData;
+volatile uint32_t ndFlag = 0;
 
 /* USER CODE END PV */
 
@@ -101,6 +106,55 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+// Define character transmission function
+void transmitChar(char input)
+{
+	uint32_t txeMask = 1 << 7;
+	while ((USART3->ISR & txeMask) == 0)
+	{
+		// Do nothing while transmit register is not empty
+	}
+	// Transmit register is now empty, write to register
+	USART3->TDR = input;
+	
+}
+
+char readChar()
+{
+	char val;
+	uint32_t rxneMask = 1 << 5;
+	while((USART3->ISR & rxneMask) == 0)
+	{
+		// Don't do anything while recieve register is empty
+	}
+	val = USART3->RDR;
+	return val;
+}
+
+void transmitStr(char *input)
+{
+	uint32_t i = 0;
+	while(input[i] != '\0') 
+	{
+		transmitChar(input[i]);
+		i = i + 1;
+	}
+	transmitChar('\n');
+	transmitChar('\r');
+}
+
+void USART3_4_IRQHandler()
+{
+	newData = (USART3->RDR & 0xFF); // Only take needed bits, not reserved ones
+	ndFlag = 1;
+}
+
+void uint16ToStr(int input, char *buffer)
+{
+	// Max string length of 2^16 = 65536 is 5 digits, plus 1 for null terminator
+	snprintf(buffer, 6, "%d", input);
+}
 
 void LED_init(void) {
     // Initialize PC8 and PC9 for LED's
@@ -181,9 +235,62 @@ int main(void)
 	// Enable needed peripheral clocks
 	RCC->AHBENR |= (1 << 19); // Enable GPIOC clock
 	RCC->AHBENR |= (1 << 17); // Enable GPIOA clock
+	// RCC->AHBENR |= (1 << 18); // Enable GPIOB clock
+	RCC->APB2ENR |= (1 << 9); // Enable ADC clock
+	RCC->APB1ENR |= (0x1 << 18); // (1) enable USART3 clock for serial debugging
+	RCC->APB1ENR |= (1 << 8); // Enable TIM14 clock
+	
+	// USART Debugging Config
+	GPIOC->MODER |= (0xA << 20); // (10 10) Use PC10 TX and PC11 RX in alt func mode
+	USART3->BRR = 69; // OVER8 = 0, so 69 -> 115942 baud rate -> 0.64% error
+	GPIOC->AFR[1] |= (0x11 << 8); // (0001 0001) select USART3_TX for PC10, USART3_RX for PC11
+	// Enable USART (do this last)
+	USART3->CR1 |= (0x1 << 2); // Enable reciever
+	USART3->CR1 |= (0x1 << 3); // Enable transmitter
+	USART3->CR1 |= (0x1 << 5); // Enable USART RXNE interrupts
+	USART3->CR1 |= (0x1); // Set UE to enable USART
+
+	NVIC_EnableIRQ(USART3_4_IRQn); // 29
+	NVIC_SetPriority(USART3_4_IRQn, 1); // 29
 	
 	// LED Config
-	//LED_init();
+	GPIOC->MODER |= (0x5 << 16); // Set PC8, PC9 to 01 - general purpose output
+	GPIOC->OTYPER &= ~(0x3 << 8); // Set output type to push-pull (0 0)
+	GPIOC->OSPEEDR &= ~(0xF << 16); // Set output speed to low (00 00)
+	GPIOC->PUPDR &= ~(0xF << 16); // Set to no pull-up/pull-down (00 00)
+	
+	// Rangefinder Config
+	// Use PC1 as analog input ADC_IN10
+	GPIOC->MODER |= (0x3 << 2); // Set PC1 mode to  11 - analog input mode
+	GPIOC->PUPDR &= ~(0x3 << 2); // Set PC1 PUPDR to 00 - no pull-up/pull-down
+	// Configure ADC options:
+	// CFGR1 RES: 10 - 8 bits
+	// CFGR1 CONT: 1 - continuous conversion mode
+	// CFGR1 EXTEN: 00 - hardware trigger detection disabled
+	// CHSELR CHSEL11: 1 - select channel 11 for conversion
+	ADC1->CFGR1 |= (0x2 << 3); // Set bit resolution to 10 - 8 bits
+	ADC1->CFGR1 |= (0x1 << 13); // Set single/continuous conversion mode to 1 - continuous conversion;
+	ADC1->CFGR1 &= ~(0x3 << 10); // Set external trigger/polarity selection to 00 - hardware trigger detection disabled
+	// Select ADC channel for conversion
+	ADC1->CHSELR |= (0x1 << 11); // Select channel ADC_IN11
+	// Calibrate ADC
+	ADC1->CR |= (0x1 << 31); // Set ADCAL
+	while((ADC1->CR & (0x1 << 31)) != 0)
+	{
+		// ADCAL is 1, Do nothing while waiting for calibration
+	}
+	volatile uint16_t calibFactor = ADC1->DR;
+
+	// Enable ADC
+	ADC1->CR |= (0x1 << 0); // Set ADEN
+	
+	while((ADC1->ISR & (0x1 << 0)) == 0)
+	{
+		// ADRDY is 0, wait for ready
+	}
+	// Start ADC
+	ADC1->CR |= (0x1 << 2); // Set ADSTART
+	
 	
 	// Init motors
 	pwm_init();
@@ -199,6 +306,24 @@ int main(void)
 	pwm_setDutyCycleLeft(duty_cycle);
 	pwm_setDutyCycleRight(duty_cycle);
 	
+	// Servo setup
+	GPIOA->MODER |= (2 << 8); // PA4 alternate function mode
+	GPIOA->AFR[0] |= (4 << 16); // Select PA4 alternate function 4 (0100) - TIM14 CH1
+	TIM14->ARR = 2000;
+	TIM14->PSC = 79;
+	TIM14->CCMR1 &= ~(1 << 0) & ~(1 << 1); // Set CCS1 and CCS2 to output
+	TIM14->CCMR1 |= (1 << 5) | (1 << 6); // set channel 1 to PWM mode 1
+	TIM14->CCMR1 &= ~(1 << 4); // clearing low order bit to select PWM mode 1
+	TIM14->CCMR1 |= (1 << 3); // enable output compare preload for channel 1 and 2
+	TIM14->CCER |= (1 << 0); // set output enable bits for channel 1 and 2
+	TIM14->CR1 |= (1 << 0); // enable clock
+	
+	
+	// Initialize useful variables
+	volatile uint16_t adcOutput = 0;
+	volatile uint16_t prevADC = 0;
+	
+	
 	// Start at 50 percent duty cycle
     
   /* USER CODE END 2 */
@@ -206,22 +331,47 @@ int main(void)
   /* Infinite loop */
 	while (1) {
 
+		// Wait for end of conversion
+		while((ADC1->ISR & (0x1 << 2)) == 0)
+		{
+			// EOC is 0, wait for conversion to end
+		}
+
+		adcOutput = ADC1->DR; // Read DR (should reset EOC)
+		char uint16Buffer[6];
+		uint16ToStr(adcOutput, uint16Buffer);
+		transmitStr(uint16Buffer);
+		
+		
+		if (adcOutput >= 3){
+			pwm_setDutyCycleLeft(0);
+			pwm_setDutyCycleRight(0);
+			HAL_Delay(100);
+			continue;
+		} else
+		{
+			pwm_setDutyCycleLeft(15);
+			pwm_setDutyCycleRight(15);
+		}
+		
 		gyro_x = get_gyro_x();
 		gyro_y = get_gyro_y();
 		xIntegral += gyro_x;
+		
+		
 		//distance = getDistance() / 1000;
 
 //    GPIOC->ODR &= ~(GPIO_ODR_7 | GPIO_ODR_6 | GPIO_ODR_8 |
 //                    GPIO_ODR_9);  // Reset the ODR bits for LEDs
 
-//    if (gyro_y > threshold) 
-//		{
-//      GPIOC->ODR |= GPIO_ODR_6;  // Red LED for positive Y
-//    } 
-//		else if (gyro_y < -threshold) 
-//		{
-//      GPIOC->ODR |= GPIO_ODR_7;  // Blue LED for negative Y
-//    }
+    if (gyro_y > threshold) 
+		{
+      GPIOC->ODR |= GPIO_ODR_6;  // Red LED for positive Y
+    } 
+		else if (gyro_y < -threshold) 
+		{
+      GPIOC->ODR |= GPIO_ODR_7;  // Blue LED for negative Y
+    }
 
     if (gyro_x > threshold) 
 		{
@@ -237,6 +387,9 @@ int main(void)
 			pwm_setDutyCycleLeft(duty_cycle);
 			pwm_setDutyCycleRight(duty_cycle);
 		}
+		
+//		// Set servo duty cycle
+//		TIM14->CCR1 = ((uint32_t)6*TIM14->ARR)/100;
 
     HAL_Delay(100);
   }	
