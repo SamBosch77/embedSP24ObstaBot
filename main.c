@@ -37,13 +37,6 @@ PA5,PA6 - M2 directional control pins
 PC1 - ADC_IN7 Rangefinder analog input
 
 PA4 - Servo PWM signal (TIM14 CH1) (duty cycle: 2-left, 6-front, 11-right)
-
-
-
-PB15 - gyro MOSI (SPI2)
-PB14 - gyro MISO (SPI2)
-PB13 - gyro SCLK (SPI2)
-PC0  - gyro mode select/CS -- drive low for SPI communication enable
 */
 
 /*
@@ -95,6 +88,7 @@ volatile int32_t xIntegral = 0;
 //volatile uint8_t duty_cycle = 0;
 volatile char newData;
 volatile uint32_t ndFlag = 0;
+uint8_t dirFlag = 0;
 
 /* USER CODE END PV */
 
@@ -205,6 +199,31 @@ void HAL_SYSTICK_Callback(void) {
     }
 }
 
+	void turnRight()
+	{
+		GPIOA->ODR &= ~(0x3 << 0) & ~(0x3 << 5);
+		GPIOA->ODR |= (0x1 << 0) | (0x2 << 5);
+		pwm_setDutyCycleLeft(24);
+		pwm_setDutyCycleRight(20);
+	  HAL_Delay(700);
+		GPIOA->ODR &= ~(0x3 << 0) & ~(0x3 << 5);
+		GPIOA->ODR |= (0x1 << 0) | (0x1 << 5);
+		pwm_setDutyCycleLeft(0);
+		pwm_setDutyCycleRight(0);
+	}
+		void turnLeft()
+	{
+		GPIOA->ODR &= ~(0x3 << 0) & ~(0x3 << 5);
+		GPIOA->ODR |= (0x2 << 0) | (0x1 << 5);
+		pwm_setDutyCycleLeft(24);
+		pwm_setDutyCycleRight(20);
+	  HAL_Delay(700);
+		GPIOA->ODR &= ~(0x3 << 0) & ~(0x3 << 5);
+		GPIOA->ODR |= (0x1 << 0) | (0x1 << 5);
+		pwm_setDutyCycleLeft(0);
+		pwm_setDutyCycleRight(0);
+	}
+
 /* USER CODE END 0 */
 
 /**
@@ -219,7 +238,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-	
+	volatile uint8_t dist[3] = {0,0,0};
 	
 //  button_init();                          // Initialize button
 //  motor_init();
@@ -317,7 +336,8 @@ int main(void)
 	TIM14->CCMR1 |= (1 << 3); // enable output compare preload for channel 1 and 2
 	TIM14->CCER |= (1 << 0); // set output enable bits for channel 1 and 2
 	TIM14->CR1 |= (1 << 0); // enable clock
-	
+			// Set servo duty cycle
+		
 	
 	// Initialize useful variables
 	volatile uint16_t adcOutput = 0;
@@ -330,28 +350,58 @@ int main(void)
 
   /* Infinite loop */
 	while (1) {
-
+		TIM14->CCR1 = ((uint32_t)6*TIM14->ARR)/100;
 		// Wait for end of conversion
 		while((ADC1->ISR & (0x1 << 2)) == 0)
 		{
 			// EOC is 0, wait for conversion to end
 		}
 
-		adcOutput = ADC1->DR; // Read DR (should reset EOC)
+		dist[1] = ADC1->DR; // Read DR (should reset EOC)
 		char uint16Buffer[6];
 		uint16ToStr(adcOutput, uint16Buffer);
 		transmitStr(uint16Buffer);
 		
 		
-		if (adcOutput >= 3){
+		if (dist[1] >= 3){
 			pwm_setDutyCycleLeft(0);
 			pwm_setDutyCycleRight(0);
 			HAL_Delay(100);
+					// Set servo duty cycle
+			dist[1]= ADC1->DR;
+			TIM14->CCR1 = ((uint32_t)11*TIM14->ARR)/100;
+			HAL_Delay(500);
+			dist[2] = ADC1->DR;
+			TIM14->CCR1 = ((uint32_t)2*TIM14->ARR)/100;
+			HAL_Delay(500);
+				dist[0] = ADC1->DR;
+			TIM14->CCR1 = ((uint32_t)6*TIM14->ARR)/100;
+			
+			if(dist[0]>2)
+			{
+				turnRight();
+				dirFlag = 0;
+			}
+		
+			else if(dist[2]>2)
+			{
+				turnLeft();
+				dirFlag = 1;
+			}
+			else {
+				if(dirFlag == 0) {
+					turnRight();
+				}
+				else if(dirFlag == 1) {
+					turnLeft();
+				}
+			}
+
 			continue;
 		} else
 		{
-			pwm_setDutyCycleLeft(15);
-			pwm_setDutyCycleRight(15);
+			pwm_setDutyCycleLeft(24);
+			pwm_setDutyCycleRight(20);
 		}
 		
 		gyro_x = get_gyro_x();
@@ -364,36 +414,36 @@ int main(void)
 //    GPIOC->ODR &= ~(GPIO_ODR_7 | GPIO_ODR_6 | GPIO_ODR_8 |
 //                    GPIO_ODR_9);  // Reset the ODR bits for LEDs
 
-    if (gyro_y > threshold) 
-		{
-      GPIOC->ODR |= GPIO_ODR_6;  // Red LED for positive Y
-    } 
-		else if (gyro_y < -threshold) 
-		{
-      GPIOC->ODR |= GPIO_ODR_7;  // Blue LED for negative Y
-    }
+//    if (gyro_y > threshold) 
+//		{
+//      GPIOC->ODR |= GPIO_ODR_6;  // Red LED for positive Y
+//    } 
+//		else if (gyro_y < -threshold) 
+//		{
+//      GPIOC->ODR |= GPIO_ODR_7;  // Blue LED for negative Y
+//    }
 
-    if (gyro_x > threshold) 
-		{
-      pwm_setDutyCycleLeft(duty_cycle+10);  // Green LED for positive X
-			pwm_setDutyCycleRight(duty_cycle+10);
-    } 
-		else if (gyro_x < -threshold) 
-		{
-      pwm_setDutyCycleLeft(duty_cycle-10);  // Orange LED for negative X
-			pwm_setDutyCycleRight(duty_cycle-10);
-    }
-		else {
-			pwm_setDutyCycleLeft(duty_cycle);
-			pwm_setDutyCycleRight(duty_cycle);
-		}
+//    if (gyro_x > threshold) 
+//		{
+//      pwm_setDutyCycleLeft(duty_cycle+10);  // Green LED for positive X
+//			pwm_setDutyCycleRight(duty_cycle+10);
+//    } 
+//		else if (gyro_x < -threshold) 
+//		{
+//      pwm_setDutyCycleLeft(duty_cycle-10);  // Orange LED for negative X
+//			pwm_setDutyCycleRight(duty_cycle-10);
+//    }
+//		else {
+//			pwm_setDutyCycleLeft(duty_cycle);
+//			pwm_setDutyCycleRight(duty_cycle);
+//		}
 		
-//		// Set servo duty cycle
-//		TIM14->CCR1 = ((uint32_t)6*TIM14->ARR)/100;
+
 
     HAL_Delay(100);
   }	
 		
+
 		
 		// Test IN1, IN2, IN3, IN4 combos
 		// Clear all LEDs
