@@ -82,7 +82,7 @@ volatile uint32_t encoder_count = 0;
 int16_t gyro_x = 0;
 int16_t gyro_y = 0;
 int16_t gyro_z = 0;
-int32_t threshold = 2000;
+int32_t threshold = 3000;
 float distance = 0;
 volatile int32_t xIntegral = 0;
 //volatile uint8_t duty_cycle = 0;
@@ -201,24 +201,27 @@ void HAL_SYSTICK_Callback(void) {
 
 	void turnRight()
 	{
-		GPIOA->ODR &= ~(0x3 << 0) & ~(0x3 << 5);
-		GPIOA->ODR |= (0x1 << 0) | (0x2 << 5);
+		GPIOA->ODR &= ~((0x3 << 0) | (0x1 << 5));
+		GPIOC->ODR &= ~(1 << 8);
+		GPIOA->ODR |= (0x1 << 0);
+		GPIOC->ODR |= (0x1 << 8);
 		pwm_setDutyCycleLeft(24);
 		pwm_setDutyCycleRight(20);
 	  HAL_Delay(700);
-		GPIOA->ODR &= ~(0x3 << 0) & ~(0x3 << 5);
+		GPIOA->ODR &= ~((0x3 << 0) | (0x1 << 5));
+		GPIOC->ODR &= ~(1 << 8);
 		GPIOA->ODR |= (0x1 << 0) | (0x1 << 5);
 		pwm_setDutyCycleLeft(0);
 		pwm_setDutyCycleRight(0);
 	}
 		void turnLeft()
 	{
-		GPIOA->ODR &= ~(0x3 << 0) & ~(0x3 << 5);
+		GPIOA->ODR &= ~(0x3 << 0) & ~(0x5 << 5);
 		GPIOA->ODR |= (0x2 << 0) | (0x1 << 5);
 		pwm_setDutyCycleLeft(24);
 		pwm_setDutyCycleRight(20);
 	  HAL_Delay(700);
-		GPIOA->ODR &= ~(0x3 << 0) & ~(0x3 << 5);
+		GPIOA->ODR &= ~(0x3 << 0) & ~(0x5 << 5);
 		GPIOA->ODR |= (0x1 << 0) | (0x1 << 5);
 		pwm_setDutyCycleLeft(0);
 		pwm_setDutyCycleRight(0);
@@ -368,13 +371,25 @@ int main(void)
 			pwm_setDutyCycleRight(0);
 			HAL_Delay(100);
 					// Set servo duty cycle
+			while((ADC1->ISR & (0x1 << 2)) == 0)
+			{
+				// EOC is 0, wait for conversion to end
+			}
 			dist[1]= ADC1->DR;
 			TIM14->CCR1 = ((uint32_t)11*TIM14->ARR)/100;
 			HAL_Delay(500);
+			while((ADC1->ISR & (0x1 << 2)) == 0)
+			{
+				// EOC is 0, wait for conversion to end
+			}
 			dist[2] = ADC1->DR;
 			TIM14->CCR1 = ((uint32_t)2*TIM14->ARR)/100;
 			HAL_Delay(500);
-				dist[0] = ADC1->DR;
+			while((ADC1->ISR & (0x1 << 2)) == 0)
+			{
+				// EOC is 0, wait for conversion to end
+			}
+			dist[0] = ADC1->DR;
 			TIM14->CCR1 = ((uint32_t)6*TIM14->ARR)/100;
 			
 			if(dist[0]>2)
@@ -402,7 +417,6 @@ int main(void)
 		{
 			pwm_setDutyCycleLeft(24);
 			pwm_setDutyCycleRight(20);
-		}
 		
 		gyro_x = get_gyro_x();
 		gyro_y = get_gyro_y();
@@ -423,25 +437,19 @@ int main(void)
 //      GPIOC->ODR |= GPIO_ODR_7;  // Blue LED for negative Y
 //    }
 
-//    if (gyro_x > threshold) 
-//		{
-//      pwm_setDutyCycleLeft(duty_cycle+10);  // Green LED for positive X
-//			pwm_setDutyCycleRight(duty_cycle+10);
-//    } 
-//		else if (gyro_x < -threshold) 
-//		{
-//      pwm_setDutyCycleLeft(duty_cycle-10);  // Orange LED for negative X
-//			pwm_setDutyCycleRight(duty_cycle-10);
-//    }
-//		else {
-//			pwm_setDutyCycleLeft(duty_cycle);
-//			pwm_setDutyCycleRight(duty_cycle);
-//		}
-		
-
-
+    if (gyro_x > threshold) 
+		{
+      pwm_setDutyCycleLeft(24+10);  // Green LED for positive X
+			pwm_setDutyCycleRight(20+10);
+    } 
+		else if (gyro_x < -threshold) 
+		{
+      pwm_setDutyCycleLeft(24-10);  // Orange LED for negative X
+			pwm_setDutyCycleRight(20-10);
+    }
+	}
     HAL_Delay(100);
-  }	
+}	
 		
 
 		

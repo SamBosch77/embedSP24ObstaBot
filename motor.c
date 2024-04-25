@@ -25,13 +25,13 @@ void pwm_init(void) {
     RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
 
     // Set up (PA5, PA6) and (PA0, PA1) as GPIO output pins for motor direction control
-    GPIOA->MODER &= 0xFFFFC3FF; // clear PA5, PA6 bits,
-    GPIOA->MODER |= (1 << 10) | (1 << 12);
+    GPIOA->MODER &= 0xFFFF33FF; // clear PA5, PA7 bits,
+    GPIOA->MODER |= (1 << 10) | (1 << 14);
 		GPIOA->MODER &= 0xFFFFFFF0; // clear PA0, PA1
 		GPIOA->MODER |= (1 << 0) | (1 << 2);
     //Initialize one direction pin to high, the other low
     GPIOA->ODR |= (1 << 5);
-    GPIOA->ODR &= ~(1 << 6);
+    GPIOA->ODR &= ~(1 << 7);
 		GPIOA->ODR |= (1 << 0);
 		GPIOA->ODR &= ~(1 << 1);
 
